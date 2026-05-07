@@ -262,7 +262,7 @@
                 indicator.style.display = "none";
             }
             // 戻る (L,L,R,R,L,R)
-            if (commandHistory === "LLRRML" || commandHistory === "LLRRMR" || commandHistory === "LLRRLL") {
+            if (commandHistory === "LLRRLL" || commandHistory === "LLRRLR" || commandHistory === "LLRRLL") {
                 if (currentSongIndex > 0) loadLiveSong(currentSongIndex - 1);
                 commandHistory = "";
                 indicator.style.display = "none";
