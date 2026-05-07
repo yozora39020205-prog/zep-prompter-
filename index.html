@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="manifest" href="manifest.json">
-    <title>Zep Prompter V8</title>
+    <title>Zep Prompter V9</title>
     <style>
         :root { --bg: #000; --text: #fff; --accent: #f1c40f; --panel: #1a1a1a; }
         body { background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; margin: 0; padding: 0; }
@@ -18,20 +18,21 @@
         button.danger { background: #c0392b; }
         button.action { background: #2980b9; padding: 8px 12px; }
         .song-item { display: flex; justify-content: space-between; align-items: center; background: #333; padding: 10px; margin: 5px 0; border-radius: 5px; }
-        #live-view { display: none; padding: 120px 50px 600px 50px; text-align: center; }
-        #lyrics-display { line-height: 1.4; font-weight: bold; white-space: pre-wrap; }
-        #live-nav { position: fixed; top: 0; width: 100%; background: rgba(0,0,0,0.9); padding: 15px 10px; display: none; z-index: 1000; gap: 10px; overflow-x: auto; border-bottom: 2px solid #333; }
-        .song-btn { background: #444; color: white; padding: 12px 25px; border-radius: 5px; font-size: 1.2rem; font-weight: bold; white-space: nowrap; }
-        .active-song { background: var(--accent); color: black; }
-        .highlight { color: var(--accent); }
         
-        /* 足元の視覚フィードバック用インジケーター */
+        #live-view { display: none; padding: 80px 50px 600px 50px; text-align: center; position: relative; }
+        #lyrics-display { line-height: 1.4; font-weight: bold; white-space: pre-wrap; }
+        
+        /* 改善：EXITボタンを右上に常時表示（半透明） */
+        #btn-exit-live {
+            position: fixed; top: 20px; right: 20px; z-index: 2000;
+            background: rgba(192, 57, 43, 0.6); color: white; border: 2px solid #fff;
+        }
+        
         #command-indicator { 
             position: fixed; bottom: 30px; left: 30px; 
             font-family: monospace; font-size: 1.5rem; 
             color: var(--accent); background: rgba(0,0,0,0.5);
-            padding: 5px 15px; border-radius: 20px;
-            display: none; z-index: 2000;
+            padding: 5px 15px; border-radius: 20px; display: none; z-index: 2000;
         }
     </style>
 </head>
@@ -39,7 +40,7 @@
 
 <div id="admin-panel">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-        <h2>Zep Prompter V8</h2>
+        <h2>Zep Prompter V9</h2>
         <button id="btn-start-live" class="primary">🚀 LIVE START</button>
     </div>
 
@@ -61,7 +62,7 @@
     <div class="card">
         <h3 id="form-title">🎵 曲の追加・編集</h3>
         <input type="hidden" id="edit-index" value="-1">
-        <input type="text" id="song-title" placeholder="曲名（例：The Rover）">
+        <input type="text" id="song-title" placeholder="曲名">
         <textarea id="song-lyrics" rows="6" placeholder="歌詞入力 [ハーモニカ]"></textarea>
         <label>スクロール速度 (1〜20): <input type="number" id="song-speed" value="5"></label>
         <button id="btn-save-song" class="primary" style="width:100%;">保存</button>
@@ -70,34 +71,32 @@
     <div class="card"><h3>📋 セットリスト</h3><div id="setlist-container"></div></div>
 </div>
 
-<div id="live-nav"></div>
 <div id="live-view">
+    <button id="btn-exit-live">戻る (EXIT)</button>
     <div id="lyrics-display"></div>
     <div id="command-indicator"></div>
-    <div style="position:fixed; bottom:20px; right:20px; opacity:0.1;">
-        <button id="btn-exit-live" class="danger">EXIT</button>
-    </div>
 </div>
 
 <script>
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js');
+        // オフラインキャッシュの強制更新のためにバージョンパラメータを付与
+        navigator.serviceWorker.register('sw.js?v=9');
     }
 
     let appData = { settings: { fontSize: 80 }, setlist: [], gasUrl: "" };
     let currentSongIndex = 0;
     
-    // コマンド定義
+    // コマンド定義 (Mのタイポを修正)
     let commandHistory = "";
     let commandTimer;
-    const NEXT_COMMAND = "RRLLRL"; // 右右左左右左
-    const PREV_COMMAND = "LLRRML"; // 左左右右左右 (MはLの代わり、Lを定義)
+    const NEXT_COMMAND = "RRLLRL";
+    const PREV_COMMAND = "LLRRLR";
 
     window.onload = () => {
         const saved = localStorage.getItem('zepAppData');
         if (saved) {
             appData = JSON.parse(saved);
-            document.getElementById('global-font-size').value = appData.settings.fontSize || 80;
+            document.getElementById('global-font-size').value = appData.settings?.fontSize || 80;
             document.getElementById('gas-url').value = appData.gasUrl || "";
         }
         renderSetlist();
@@ -146,7 +145,6 @@
         else appData.setlist.push(obj);
 
         saveData(); renderSetlist(); clearForm();
-        alert("保存完了！");
     }
 
     function clearForm() {
@@ -174,12 +172,10 @@
 
     window.deleteSong = (i) => { if(confirm("削除？")) { appData.setlist.splice(i, 1); saveData(); renderSetlist(); } };
 
-    // --- ライブモード制御 ---
     function startLiveMode() {
         if (appData.setlist.length === 0) return alert("曲がない！");
         document.getElementById('admin-panel').style.display = 'none';
         document.getElementById('live-view').style.display = 'block';
-        document.getElementById('live-nav').style.display = 'flex';
         document.getElementById('lyrics-display').style.fontSize = appData.settings.fontSize + 'px';
         loadLiveSong(0);
     }
@@ -192,22 +188,13 @@
             ${s.lyrics.replace(/\[(.*?)\]/g, '<span class="highlight">[$1]</span>')}
         `;
         window.scrollTo(0, 0);
-        updateNav();
     };
-
-    function updateNav() {
-        document.getElementById('live-nav').innerHTML = appData.setlist.map((s, i) => `
-            <div class="song-btn ${i === currentSongIndex ? 'active-song' : ''}" onclick="loadLiveSong(${i})">${i + 1}. ${s.title}</div>
-        `).join('');
-    }
 
     function exitLiveMode() {
         document.getElementById('admin-panel').style.display = 'block';
         document.getElementById('live-view').style.display = 'none';
-        document.getElementById('live-nav').style.display = 'none';
     }
 
-    // --- 同期ロジック ---
     async function syncUp() {
         saveData();
         const url = appData.gasUrl;
@@ -230,14 +217,28 @@
         } catch(e) { document.getElementById('sync-status').innerText = "❌ 受信失敗"; }
     }
 
-    // --- フットスイッチ・コマンド & スクロール ---
+    // --- キー＆ペダル操作 ---
     window.addEventListener('keydown', (e) => {
         if (document.getElementById('live-view').style.display !== 'block') return;
 
+        // ① 十字キーの直接割り当て（左右：曲移動、上下：無効）
+        if (e.key === 'ArrowRight') {
+            if (currentSongIndex < appData.setlist.length - 1) loadLiveSong(currentSongIndex + 1);
+            return;
+        }
+        if (e.key === 'ArrowLeft') {
+            if (currentSongIndex > 0) loadLiveSong(currentSongIndex - 1);
+            return;
+        }
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+            e.preventDefault();
+            return;
+        }
+
+        // ② スクロール＆コマンド判定（PageDown/PageUp など）
         let input = "";
-        // AirTurnの設定に合わせてキー判定（Arrow/Pageキー）
-        if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === 'ArrowRight') input = "R";
-        if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'ArrowLeft') input = "L";
+        if (e.key === 'PageDown' || e.key === ' ') input = "R";
+        if (e.key === 'PageUp') input = "L";
 
         if (input) {
             commandHistory += input;
@@ -247,25 +248,21 @@
 
             clearTimeout(commandTimer);
             commandTimer = setTimeout(() => {
-                // 入力なし（単発踏み）とみなされた時の処理
-                if (commandHistory === "R") window.scrollBy({ top: window.innerHeight * 0.4, behavior: 'smooth' });
-                if (commandHistory === "L") window.scrollBy({ top: -window.innerHeight * 0.4, behavior: 'smooth' });
+                // スクロール幅を0.4から0.2に半減
+                if (commandHistory === "R") window.scrollBy({ top: window.innerHeight * 0.2, behavior: 'smooth' });
+                if (commandHistory === "L") window.scrollBy({ top: -window.innerHeight * 0.2, behavior: 'smooth' });
                 
                 commandHistory = "";
                 indicator.style.display = "none";
-            }, 500); // 0.5秒以内ならコマンド継続、それ以上なら単発確定
+            }, 500);
 
-            // 次へ
             if (commandHistory === NEXT_COMMAND) {
                 if (currentSongIndex < appData.setlist.length - 1) loadLiveSong(currentSongIndex + 1);
-                commandHistory = "";
-                indicator.style.display = "none";
+                commandHistory = ""; indicator.style.display = "none";
             }
-            // 戻る (L,L,R,R,L,R)
-            if (commandHistory === "LLRRLL" || commandHistory === "LLRRLR" || commandHistory === "LLRRLL") {
+            if (commandHistory === PREV_COMMAND) {
                 if (currentSongIndex > 0) loadLiveSong(currentSongIndex - 1);
-                commandHistory = "";
-                indicator.style.display = "none";
+                commandHistory = ""; indicator.style.display = "none";
             }
         }
     });
